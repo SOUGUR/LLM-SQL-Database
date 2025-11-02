@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milk Logistics Analytics Chatbot</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Define Inter font and set base styling */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        :root {
+            --dark-blue: #0f172a; /* Tailwind slate-900 */
+            --light-cyan: #22d3ee; /* Tailwind cyan-400 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for pre blocks */
+        pre::-webkit-scrollbar {
+            height: 6px;
+        }
+        pre::-webkit-scrollbar-thumb {
+            background-color: var(--light-cyan);
+            border-radius: 3px;
+        }
+        pre::-webkit-scrollbar-track {
+            background-color: var(--dark-blue);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 sm:p-8 flex items-start justify-center">
+
+    <div class="w-full max-w-4xl bg-slate-800 p-6 sm:p-10 rounded-xl shadow-2xl border border-slate-700 space-y-6 mt-8">
+        
+        <header class="border-b border-cyan-400 pb-4">
+            <h1 class="text-3xl font-extrabold text-white">Dairy Logistics Query Tool</h1>
+            <p class="text-slate-400 mt-1">Ask questions about your supply chain data. The AI will generate and run the SQL.</p>
+        </header>
+        
+        <!-- Input Area -->
+        <div>
+            <label for="question" class="block text-sm font-medium text-slate-300 mb-2">Enter your query:</label>
+            <textarea 
+                id="question" 
+                placeholder="e.g., What are the route prices and party specific prices and which one is expensive in plant Turbhe?" 
+                class="w-full h-24 p-4 text-white bg-slate-700 border border-slate-600 rounded-lg focus:ring-cyan-500 focus:border-cyan-500 resize-none placeholder-slate-400 transition duration-150"
+            ></textarea>
+            
+            <button 
+                onclick="ask()" 
+                class="mt-4 w-full sm:w-auto px-6 py-3 font-semibold text-slate-900 bg-cyan-400 rounded-full shadow-lg hover:bg-cyan-300 transition duration-300 ease-in-out transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-cyan-500 focus:ring-opacity-50"
+            >
+                Submit Query
+            </button>
+        </div>
+
+        <!-- Output Area -->
+        <div id="output" class="pt-4">
+            <p class="text-slate-500 italic">Results will appear here...</p>
+        </div>
+
+    </div>
+
+    <script>
+        // Define global colors for consistent styling in JS-generated elements
+        const PRIMARY_ACCENT_COLOR = 'text-cyan-400';
+        const BG_SECONDARY_COLOR = 'bg-slate-700';
+        const BG_CODE_COLOR = 'bg-slate-900';
+        const TEXT_CODE_COLOR = 'text-slate-300';
+        const TEXT_ERROR_COLOR = 'text-red-300';
+        const BG_ERROR_COLOR = 'bg-red-900';
+        
+        // Exponential backoff configuration for robust fetching
+        const MAX_RETRIES = 3;
+        const INITIAL_DELAY_MS = 500;
+
+        /**
+         * Toggles the visibility of the SQL query block and updates the button text.
+         */
+        function toggleSQL() {
+            const container = document.getElementById('sqlContainer');
+            const button = document.getElementById('sqlToggleBtn');
+
+            if (container && button) {
+                // Toggle the 'hidden' class
+                container.classList.toggle('hidden');
+
+                // Update the button text based on the new state
+                if (container.classList.contains('hidden')) {
+                    button.textContent = 'Show Query';
+                } else {
+                    button.textContent = 'Hide Query';
+                }
+            }
+        }
+
+        /**
+         * Converts plain JSON result rows into a responsive HTML table string.
+         * @param {Array<Object>} rows - The data rows from the SQL query result.
+         * @returns {string} The HTML table or a formatted <pre> block.
+         */
+        function formatResults(rows) {
+            if (rows.length === 0) {
+                return `<p class="text-slate-400">Query executed, but returned no data.</p>`;
+            }
+
+            // Get headers from the first row keys
+            const headers = Object.keys(rows[0]);
+            
+            let tableHtml = `<div class="overflow-x-auto rounded-lg border border-slate-600 shadow-xl">
+                <table class="min-w-full divide-y divide-slate-600">
+                    <thead class="bg-slate-700">
+                        <tr>`;
+            // Header row
+            headers.forEach(header => {
+                tableHtml += `<th class="px-4 py-3 text-left text-xs font-medium ${PRIMARY_ACCENT_COLOR} uppercase tracking-wider">${header}</th>`;
+            });
+            tableHtml += `</tr></thead>
+                <tbody class="divide-y divide-slate-800">`;
+
+            // Data rows
+            rows.forEach(row => {
+                tableHtml += `<tr class="bg-slate-800 hover:bg-slate-700 transition duration-150">`;
+                headers.forEach(header => {
+                    // Simple conversion of value to string for display
+                    const value = row[header] !== null && row[header] !== undefined ? row[header].toString() : 'NULL';
+                    tableHtml += `<td class="px-4 py-3 whitespace-nowrap text-sm text-slate-200">${value}</td>`;
+                });
+                tableHtml += `</tr>`;
+            });
+
+            tableHtml += `</tbody></table></div>`;
+            return tableHtml;
+        }
+
+        async function ask() {
+            const q = document.getElementById('question').value.trim();
+            const out = document.getElementById('output');
+            
+            if (!q) {
+                out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
+                    Please enter a question.
+                </div>`;
+                return;
+            }
+
+            out.innerHTML = `<div class="text-center mt-4 p-4 text-cyan-400">
+                <svg class="animate-spin h-5 w-5 mr-3 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Processing query and contacting LLM...
+            </div>`;
+            
+            let res = null;
+            let lastError = null;
+
+            for (let i = 0; i < MAX_RETRIES; i++) {
+                try {
+                    res = await fetch('/chatbot/api/query/', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({question: q})
+                    });
+
+                    if (res.ok) {
+                        break; // Success!
+                    } else if (res.status === 429 || res.status >= 500) {
+                        // Rate limit or server error - implement exponential backoff
+                        lastError = `Server responded with status ${res.status}. Retrying...`;
+                        console.warn(lastError);
+                        await new Promise(resolve => setTimeout(resolve, INITIAL_DELAY_MS * Math.pow(2, i)));
+                        continue;
+                    } else {
+                        // Other client errors (400, 404, etc.) - break loop and report error
+                        lastError = `Request failed with status ${res.status}.`;
+                        break;
+                    }
+                } catch (e) {
+                    lastError = `Network error: ${e.message}. Retrying...`;
+                    console.error(lastError);
+                    await new Promise(resolve => setTimeout(resolve, INITIAL_DELAY_MS * Math.pow(2, i)));
+                }
+            }
+
+            if (!res || !res.ok) {
+                 out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
+                    <p class="font-bold">❌ Connection Error</p>
+                    <p>Failed to connect to the backend after ${MAX_RETRIES} attempts. Details: ${lastError || 'Unknown error.'}</p>
+                </div>`;
+                return;
+            }
+
+            // Process successful response
+            try {
+                const data = await res.json();
+                
+                if (data.error) {
+                    out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
+                        <p class="font-bold">❌ AI or SQL Execution Error:</p>
+                        <p class="mt-1 text-sm">${data.error}</p>
+                    </div>`;
+                } else {
+                    const sql = data.sql || 'N/A';
+                    const rows = data.result || [];
+                    
+                    let html = `<div class="space-y-6">`;
+                    
+                    // 1. Generated SQL Display with Toggle Button
+                    html += `<div class="p-4 ${BG_SECONDARY_COLOR} rounded-xl shadow-inner border border-slate-700">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-xl font-bold ${PRIMARY_ACCENT_COLOR} flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                Generated SQL Query
+                            </h3>
+                            <button id="sqlToggleBtn" onclick="toggleSQL()" class="text-sm px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded-full transition duration-150 text-slate-300">
+                                Show Query
+                            </button>
+                        </div>
+                        <div id="sqlContainer" class="hidden"> 
+                            <pre class="whitespace-pre-wrap overflow-x-auto font-mono text-sm ${BG_CODE_COLOR} p-4 rounded-lg ${TEXT_CODE_COLOR} border border-slate-700">${sql}</pre>
+                        </div>
+                    </div>`;
+                    
+                    // 2. Query Results Display
+                    html += `<div class="p-4 ${BG_SECONDARY_COLOR} rounded-xl shadow-inner border border-slate-700">
+                        <h3 class="text-xl font-bold ${PRIMARY_ACCENT_COLOR} mb-3 flex items-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7h16M4 7l-2 4m2-4l-2-4m16 4l2-4m-2 4h2M12 21V12M7 5h10a2 2 0 012 2v2a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2z"></path></svg>
+                            Query Results (${rows.length} rows)
+                        </h3>
+                        ${formatResults(rows)}
+                    </div>`;
+
+                    html += '</div>';
+                    out.innerHTML = html;
+                }
+            } catch (e) {
+                out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
+                    <p class="font-bold">❌ Parsing Error</p>
+                    <p>Failed to parse the response from the server. This may indicate an unexpected backend issue.</p>
+                </div>`;
+                console.error("Parsing Error:", e);
+            }
+        }
+    </script>
+</body>
+</html>
