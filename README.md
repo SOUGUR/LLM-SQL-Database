@@ -98,3 +98,8 @@ Open `http://localhost:8000/` and ask questions about your database in plain Eng
 **Important**:
 - The app only supports auto-generated, safe, read-only SELECT queries by default.
 - Do not deploy in production without further security auditing and hardening.
+
+<img width="1919" height="857" alt="Screenshot 2025-10-20 171520" src="https://github.com/user-attachments/assets/6ffd242f-fb10-4fb9-a853-016bca8df30e" />
+<img width="1919" height="829" alt="Screenshot 2025-10-20 163343" src="https://github.com/user-attachments/assets/92f09edc-2bdc-42ff-a49d-76c35c88f3f9" />
+<img width="1912" height="832" alt="Screenshot 2025-10-20 163327" src="https://github.com/user-attachments/assets/8add5208-ebb4-43ff-9b45-15947491d338" />
+
