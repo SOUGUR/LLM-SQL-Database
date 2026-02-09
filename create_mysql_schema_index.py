@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import pymysql
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
 load_dotenv()
 
@@ -20,6 +22,7 @@ else:
     print("Warning: table_descriptions.json not found in /data folder.")
     table_descriptions = {}
 
+# connect to your local database
 conn = pymysql.connect(
     host=os.getenv("DB_HOST"),
     user=os.getenv("DB_USER"),
@@ -31,6 +34,7 @@ conn = pymysql.connect(
 
 cursor = conn.cursor()
 cursor.execute("SHOW TABLES")
+# get all table names
 tables = [row[0] for row in cursor.fetchall()]
 
 cursor.execute(f"""
@@ -82,10 +86,21 @@ for table in tables:
 
 conn.close()
 
-# Embed and store
+# Embedding model name
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# strategy for chunking - Recursive Charater Text Splitter
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=100,
+    separators=["\n\n", "\n", ".", " ", ""]
+)
+
+chunked_docs = text_splitter.split_text("\n\n".join(docs))
+
+# check embedding and store them in vector storage
 vectorstore = Chroma.from_texts(
-    texts=docs,
+    texts=chunked_docs,
     embedding=embeddings,
     persist_directory="./chroma_mysql",
     collection_name="mysql_schema"

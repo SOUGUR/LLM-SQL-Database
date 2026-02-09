@@ -13,7 +13,7 @@ class RAGState(TypedDict, total=False):
     generated_sql: str
     sql_result: List[dict]
 
-# Initialize once
+
 CHROMA_DIR = "./chroma_mysql"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -26,7 +26,7 @@ vectordb = Chroma(
 retriever = vectordb.as_retriever(search_kwargs={"k": 8})
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash", 
     temperature=0,
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )

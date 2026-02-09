@@ -1,0 +1,2 @@
+(3, '1', 'BUTTER MILK', '2', 'PS', 'P', None, '', 'categories/Buttermilk_Pouch_500_ml-min_ZLl8N02.png', 2, 'Active', 'No', 3, None, datetime.datetime(2025, 1, 7, 10, 56, 34, 516299), None, None, 9, 1, 4)
+(4, '2', 'CREAM', '2', 'PS', 'P', None, '', 'categories/Milk_Cream-1.png', 2, 'Active', 'No', 30, None, datetime.datetime(2025, 1, 7, 10, 56, 34, 516299), None, None, None, 1, 4)rity (int)\nted f6
