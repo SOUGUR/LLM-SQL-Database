@@ -36,9 +36,13 @@ You are a MySQL expert. Generate a SINGLE READ-ONLY SELECT query.
 Rules:
 - Only use tables from the context.
 - No INSERT, UPDATE, DELETE, DROP, CREATE.
-- Always include LIMIT 100.
 - Return ONLY the SQL, no markdown.
-
+Mandatory Output Rules:
+- Never return only *_id fields.
+- If a foreign key like party_id, product_id, dispatch_id appears in SELECT,
+  you MUST join the related table and include a readable column
+  such as name, code, title, invoice_num, order_num.
+                                          
 Context:
 {context}
 
@@ -49,7 +53,10 @@ Question:
 
 async def retriever_node(state: RAGState) -> RAGState:
     docs = await retriever.ainvoke(state["question"])
-    state["retrieved_docs"] = [d.page_content for d in docs]
+    state["retrieved_docs"] = [
+    f"Table: {d.metadata.get('table')}\n{d.page_content}"
+        for d in docs
+        ]
     return state
 
 
