@@ -77,15 +77,56 @@ for table in tables:
         schema += table_descriptions[table] + "\n"
 
     # Columns
+    column_names = []
     schema += "\nColumns:\n"
     for col in cols:
         schema += f"- {col[0]} ({col[1]})\n"
+        column_names.append(col[0])
 
     # Foreign Keys
     if table in foreign_keys:
         schema += "\nRelationships:\n"
         for rel in foreign_keys[table]:
             schema += f"- {rel}\n"
+
+    try:
+        if column_names:
+            # Build SELECT with ALL columns (safely quoted)
+            cols_str = ", ".join([f"`{c}`" for c in column_names])
+            
+            cursor.execute(f"SELECT {cols_str} FROM `{table}` LIMIT 5")
+            sample_rows = cursor.fetchall()
+            
+            if sample_rows:
+                schema += f"\nSample Data ({len(sample_rows)} rows, all {len(column_names)} columns):\n"
+                
+                # Create a compact representation - one row per line
+                for idx, row in enumerate(sample_rows, 1):
+                    schema += f"\nRow {idx}:\n"
+                    for col_name, val in zip(column_names, row):
+                        # Format each value
+                        if val is None:
+                            display_val = "NULL"
+                        elif isinstance(val, (int, float, bool)):
+                            display_val = str(val)
+                        elif isinstance(val, (bytes, bytearray)):
+                            display_val = "<binary_data>"
+                        else:
+                            # Truncate long strings to 100 chars
+                            val_str = str(val)
+                            if len(val_str) > 100:
+                                val_str = val_str[:97] + "..."
+                            display_val = f'"{val_str}"'
+                        
+                        schema += f"  {col_name}: {display_val}\n"
+            else:
+                schema += "\nSample Data: (Table is empty - no rows found)\n"
+        else:
+            schema += "\nSample Data: (No columns found)\n"
+            
+    except Exception as e:
+        schema += f"\nSample Data: (Error fetching data - {str(e)})\n"
+
 
     # Create Document object ---- THIS IS THE NEW PART
     documents.append(
@@ -158,8 +199,8 @@ for i in range(0, len(split_docs), batch_size):
         vectorstore.add_documents(batch)
     
     print(f"Indexed chunks {i} to {i + len(batch)}")
-    # Pause for 2 seconds between batches to avoid 429 errors
-    time.sleep(2) 
+    # Pause for 5 seconds between batches to avoid 429 errors
+    time.sleep(5) 
 
 print("Indexing complete!")
 

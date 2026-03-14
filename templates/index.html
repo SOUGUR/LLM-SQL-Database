@@ -4,245 +4,196 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Logistics Analytics Chatbot</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Define Inter font and set base styling */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         :root {
-            --dark-blue: #0f172a; /* Tailwind slate-900 */
-            --light-cyan: #22d3ee; /* Tailwind cyan-400 */
+            --dark-blue: #0f172a;
+            --light-cyan: #22d3ee;
         }
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Custom scrollbar for pre blocks */
-        pre::-webkit-scrollbar {
-            height: 6px;
-        }
-        pre::-webkit-scrollbar-thumb {
-            background-color: var(--light-cyan);
-            border-radius: 3px;
-        }
-        pre::-webkit-scrollbar-track {
-            background-color: var(--dark-blue);
-        }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #334155; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
+        
+        .chat-container { height: calc(100vh - 220px); }
+        .message-appear { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-4 sm:p-8 flex items-start justify-center">
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center">
 
-    <div class="w-full max-w-4xl bg-slate-800 p-6 sm:p-10 rounded-xl shadow-2xl border border-slate-700 space-y-6 mt-8">
+    <div class="w-full max-w-5xl flex flex-col h-screen p-4 sm:p-6">
         
-        <header class="border-b border-cyan-400 pb-4">
-            <h1 class="text-3xl font-extrabold text-white">Dairy Logistics Query Tool</h1>
-            <p class="text-slate-400 mt-1">Ask questions about your supply chain data. The AI will generate and run the SQL.</p>
+        <header class="flex justify-between items-center border-b border-slate-700 pb-4 mb-4">
+            <div>
+                <h1 class="text-2xl font-extrabold text-white flex items-center gap-2">
+                    <span class="text-cyan-400">🥛</span> Dairy Logistics AI
+                </h1>
+                <p class="text-slate-400 text-xs sm:text-sm">Conversational SQL Query Engine</p>
+            </div>
+            <button onclick="window.location.reload()" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded border border-slate-600">New Chat</button>
         </header>
         
-        <!-- Input Area -->
-        <div>
-            <label for="question" class="block text-sm font-medium text-slate-300 mb-2">Enter your query:</label>
-            <textarea 
-                id="question" 
-                placeholder="e.g., What are the route prices and party specific prices and which one is expensive in plant Turbhe?" 
-                class="w-full h-24 p-4 text-white bg-slate-700 border border-slate-600 rounded-lg focus:ring-cyan-500 focus:border-cyan-500 resize-none placeholder-slate-400 transition duration-150"
-            ></textarea>
-            
-            <button 
-                onclick="ask()" 
-                class="mt-4 w-full sm:w-auto px-6 py-3 font-semibold text-slate-900 bg-cyan-400 rounded-full shadow-lg hover:bg-cyan-300 transition duration-300 ease-in-out transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-cyan-500 focus:ring-opacity-50"
-            >
-                Submit Query
-            </button>
+        <div id="chatHistory" class="chat-container overflow-y-auto custom-scrollbar space-y-6 pr-2 mb-4">
+            <div class="flex flex-col items-start message-appear">
+                <div class="max-w-[85%] bg-slate-800 p-4 rounded-2xl rounded-tl-none border border-slate-700 shadow-md">
+                    <p class="text-sm">Hello! I'm your logistics assistant. Ask me anything about routes, parties, or prices.</p>
+                </div>
+            </div>
         </div>
 
-        <!-- Output Area -->
-        <div id="output" class="pt-4">
-            <p class="text-slate-500 italic">Results will appear here...</p>
+        <div class="mt-auto bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-2xl">
+            <div class="flex flex-col sm:flex-row gap-3">
+                <textarea 
+                    id="question" 
+                    placeholder="Ask a question..." 
+                    class="flex-1 h-14 p-3 text-sm text-white bg-slate-700 border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none resize-none placeholder-slate-400 transition"
+                ></textarea>
+                <button 
+                    onclick="ask()" 
+                    id="submitBtn"
+                    class="px-6 py-2 font-bold text-slate-900 bg-cyan-400 rounded-xl hover:bg-cyan-300 transition flex items-center justify-center gap-2"
+                >
+                    <span>Send</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </div>
         </div>
-
     </div>
 
     <script>
-        // Define global colors for consistent styling in JS-generated elements
-        const PRIMARY_ACCENT_COLOR = 'text-cyan-400';
-        const BG_SECONDARY_COLOR = 'bg-slate-700';
-        const BG_CODE_COLOR = 'bg-slate-900';
-        const TEXT_CODE_COLOR = 'text-slate-300';
-        const TEXT_ERROR_COLOR = 'text-red-300';
-        const BG_ERROR_COLOR = 'bg-red-900';
-        
-        // Exponential backoff configuration for robust fetching
         const MAX_RETRIES = 3;
         const INITIAL_DELAY_MS = 500;
 
         /**
-         * Toggles the visibility of the SQL query block and updates the button text.
+         * Generic Toggle for collapsible sections
          */
-        function toggleSQL() {
-            const container = document.getElementById('sqlContainer');
-            const button = document.getElementById('sqlToggleBtn');
-
-            if (container && button) {
-                // Toggle the 'hidden' class
-                container.classList.toggle('hidden');
-
-                // Update the button text based on the new state
-                if (container.classList.contains('hidden')) {
-                    button.textContent = 'Show Query';
-                } else {
-                    button.textContent = 'Hide Query';
-                }
+        function toggleSection(id, showText, hideText) {
+            const el = document.getElementById(id);
+            const btn = document.getElementById('btn-' + id);
+            if (el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                btn.innerText = hideText;
+            } else {
+                el.classList.add('hidden');
+                btn.innerText = showText;
             }
         }
 
-        /**
-         * Converts plain JSON result rows into a responsive HTML table string.
-         * @param {Array<Object>} rows - The data rows from the SQL query result.
-         * @returns {string} The HTML table or a formatted <pre> block.
-         */
         function formatResults(rows) {
-            if (rows.length === 0) {
-                return `<p class="text-slate-400">Query executed, but returned no data.</p>`;
-            }
-
-            // Get headers from the first row keys
+            if (!rows || rows.length === 0) return `<p class="text-slate-400 text-sm italic">No data returned.</p>`;
             const headers = Object.keys(rows[0]);
-            
-            let tableHtml = `<div class="overflow-x-auto rounded-lg border border-slate-600 shadow-xl">
-                <table class="min-w-full divide-y divide-slate-600">
-                    <thead class="bg-slate-700">
-                        <tr>`;
-            // Header row
-            headers.forEach(header => {
-                tableHtml += `<th class="px-4 py-3 text-left text-xs font-medium ${PRIMARY_ACCENT_COLOR} uppercase tracking-wider">${header}</th>`;
-            });
-            tableHtml += `</tr></thead>
-                <tbody class="divide-y divide-slate-800">`;
-
-            // Data rows
+            let tableHtml = `<div class="overflow-x-auto rounded-lg border border-slate-700 mt-2 custom-scrollbar shadow-inner bg-slate-900">
+                <table class="min-w-full divide-y divide-slate-700 text-xs">
+                    <thead class="bg-slate-800"><tr>`;
+            headers.forEach(h => tableHtml += `<th class="px-3 py-2 text-left font-semibold text-cyan-400 uppercase">${h}</th>`);
+            tableHtml += `</tr></thead><tbody class="divide-y divide-slate-800">`;
             rows.forEach(row => {
-                tableHtml += `<tr class="bg-slate-800 hover:bg-slate-700 transition duration-150">`;
-                headers.forEach(header => {
-                    // Simple conversion of value to string for display
-                    const value = row[header] !== null && row[header] !== undefined ? row[header].toString() : 'NULL';
-                    tableHtml += `<td class="px-4 py-3 whitespace-nowrap text-sm text-slate-200">${value}</td>`;
+                tableHtml += `<tr class="hover:bg-slate-800/50">`;
+                headers.forEach(h => {
+                    const val = row[h] !== null ? row[h] : 'NULL';
+                    tableHtml += `<td class="px-3 py-2 text-slate-300">${val}</td>`;
                 });
                 tableHtml += `</tr>`;
             });
-
-            tableHtml += `</tbody></table></div>`;
-            return tableHtml;
+            return tableHtml + `</tbody></table></div>`;
         }
 
         async function ask() {
-            const q = document.getElementById('question').value.trim();
-            const out = document.getElementById('output');
-            
-            if (!q) {
-                out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
-                    Please enter a question.
+            const inputEl = document.getElementById('question');
+            const chatHistory = document.getElementById('chatHistory');
+            const question = inputEl.value.trim();
+            if (!question) return;
+
+            chatHistory.innerHTML += `
+                <div class="flex flex-col items-end message-appear">
+                    <div class="max-w-[85%] bg-cyan-600 text-white p-3 rounded-2xl rounded-tr-none shadow-md">
+                        <p class="text-sm">${question}</p>
+                    </div>
                 </div>`;
-                return;
-            }
-
-            out.innerHTML = `<div class="text-center mt-4 p-4 text-cyan-400">
-                <svg class="animate-spin h-5 w-5 mr-3 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing query and contacting LLM...
-            </div>`;
             
-            let res = null;
-            let lastError = null;
+            inputEl.value = '';
+            chatHistory.scrollTop = chatHistory.scrollHeight;
 
-            for (let i = 0; i < MAX_RETRIES; i++) {
-                try {
+            const loadingId = 'loading-' + Date.now();
+            chatHistory.innerHTML += `
+                <div id="${loadingId}" class="flex flex-col items-start message-appear">
+                    <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-md flex items-center gap-3">
+                        <div class="animate-spin h-4 w-4 border-2 border-cyan-400 border-t-transparent rounded-full"></div>
+                        <span class="text-sm text-slate-400">Querying database...</span>
+                    </div>
+                </div>`;
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            let responseData = null;
+            let errorMsg = null;
+
+            try {
+                let res;
+                for (let i = 0; i < MAX_RETRIES; i++) {
                     res = await fetch('/chatbot/api/query/', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({question: q})
+                        body: JSON.stringify({question: question})
                     });
-
-                    if (res.ok) {
-                        break; // Success!
-                    } else if (res.status === 429 || res.status >= 500) {
-                        // Rate limit or server error - implement exponential backoff
-                        lastError = `Server responded with status ${res.status}. Retrying...`;
-                        console.warn(lastError);
-                        await new Promise(resolve => setTimeout(resolve, INITIAL_DELAY_MS * Math.pow(2, i)));
-                        continue;
-                    } else {
-                        // Other client errors (400, 404, etc.) - break loop and report error
-                        lastError = `Request failed with status ${res.status}.`;
-                        break;
-                    }
-                } catch (e) {
-                    lastError = `Network error: ${e.message}. Retrying...`;
-                    console.error(lastError);
-                    await new Promise(resolve => setTimeout(resolve, INITIAL_DELAY_MS * Math.pow(2, i)));
+                    if (res.ok) break;
+                    await new Promise(r => setTimeout(r, INITIAL_DELAY_MS * Math.pow(2, i)));
                 }
-            }
-
-            if (!res || !res.ok) {
-                 out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
-                    <p class="font-bold">❌ Connection Error</p>
-                    <p>Failed to connect to the backend after ${MAX_RETRIES} attempts. Details: ${lastError || 'Unknown error.'}</p>
-                </div>`;
-                return;
-            }
-
-            // Process successful response
-            try {
-                const data = await res.json();
-                
-                if (data.error) {
-                    out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
-                        <p class="font-bold">❌ AI or SQL Execution Error:</p>
-                        <p class="mt-1 text-sm">${data.error}</p>
-                    </div>`;
-                } else {
-                    const sql = data.sql || 'N/A';
-                    const rows = data.result || [];
-                    
-                    let html = `<div class="space-y-6">`;
-                    
-                    // 1. Generated SQL Display with Toggle Button
-                    html += `<div class="p-4 ${BG_SECONDARY_COLOR} rounded-xl shadow-inner border border-slate-700">
-                        <div class="flex justify-between items-center mb-3">
-                            <h3 class="text-xl font-bold ${PRIMARY_ACCENT_COLOR} flex items-center">
-                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                                Generated SQL Query
-                            </h3>
-                            <button id="sqlToggleBtn" onclick="toggleSQL()" class="text-sm px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded-full transition duration-150 text-slate-300">
-                                Show Query
-                            </button>
-                        </div>
-                        <div id="sqlContainer" class="hidden"> 
-                            <pre class="whitespace-pre-wrap overflow-x-auto font-mono text-sm ${BG_CODE_COLOR} p-4 rounded-lg ${TEXT_CODE_COLOR} border border-slate-700">${sql}</pre>
-                        </div>
-                    </div>`;
-                    
-                    // 2. Query Results Display
-                    html += `<div class="p-4 ${BG_SECONDARY_COLOR} rounded-xl shadow-inner border border-slate-700">
-                        <h3 class="text-xl font-bold ${PRIMARY_ACCENT_COLOR} mb-3 flex items-center">
-                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7h16M4 7l-2 4m2-4l-2-4m16 4l2-4m-2 4h2M12 21V12M7 5h10a2 2 0 012 2v2a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2z"></path></svg>
-                            Query Results (${rows.length} rows)
-                        </h3>
-                        ${formatResults(rows)}
-                    </div>`;
-
-                    html += '</div>';
-                    out.innerHTML = html;
-                }
+                if (!res.ok) throw new Error(`Server Error (${res.status})`);
+                responseData = await res.json();
             } catch (e) {
-                out.innerHTML = `<div class="p-4 ${BG_ERROR_COLOR} ${TEXT_ERROR_COLOR} rounded-lg shadow-md mt-4 border border-red-700">
-                    <p class="font-bold">❌ Parsing Error</p>
-                    <p>Failed to parse the response from the server. This may indicate an unexpected backend issue.</p>
-                </div>`;
-                console.error("Parsing Error:", e);
+                errorMsg = e.message;
             }
+
+            document.getElementById(loadingId).remove();
+
+            const aiMsgId = 'ai-' + Date.now();
+            if (errorMsg || (responseData && responseData.error)) {
+                chatHistory.innerHTML += `
+                    <div class="flex flex-col items-start message-appear">
+                        <div class="max-w-[90%] bg-red-900/30 border border-red-700 p-4 rounded-2xl text-red-200">
+                            <p class="text-sm font-bold">Error</p>
+                            <p class="text-xs">${errorMsg || responseData.error}</p>
+                        </div>
+                    </div>`;
+            } else {
+                const sql = responseData.sql || '-- No SQL provided';
+                const rows = responseData.result || [];
+                const tableId = 'table-' + aiMsgId;
+                const sqlId = 'sql-' + aiMsgId;
+
+                chatHistory.innerHTML += `
+                    <div class="flex flex-col items-start message-appear w-full">
+                        <div class="max-w-[95%] w-full bg-slate-800 p-4 rounded-2xl rounded-tl-none border border-slate-700 shadow-lg space-y-4">
+                            
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs font-bold text-cyan-400 uppercase tracking-widest italic">AI Analysis</span>
+                                <div class="flex gap-2">
+                                    <button id="btn-${sqlId}" onclick="toggleSection('${sqlId}', 'Show SQL', 'Hide SQL')" class="text-[10px] bg-slate-700 px-2 py-1 rounded text-slate-300">Show SQL</button>
+                                    <button id="btn-${tableId}" onclick="toggleSection('${tableId}', 'Show Table', 'Hide Table')" class="text-[10px] bg-slate-700 px-2 py-1 rounded text-slate-300">Show Table</button>
+                                </div>
+                            </div>
+
+                            <p class="text-sm">Found <b>${rows.length}</b> records matching your request.</p>
+
+                            <div id="${sqlId}" class="hidden">
+                                <pre class="p-3 bg-slate-950 text-emerald-400 text-xs rounded-lg border border-slate-700 overflow-x-auto custom-scrollbar">${sql}</pre>
+                            </div>
+
+                            <div id="${tableId}" class="hidden">
+                                ${formatResults(rows)}
+                            </div>
+                        </div>
+                    </div>`;
+            }
+            chatHistory.scrollTop = chatHistory.scrollHeight;
         }
+
+        document.getElementById('question').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+        });
     </script>
 </body>
 </html>
