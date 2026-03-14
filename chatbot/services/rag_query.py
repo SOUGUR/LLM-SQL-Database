@@ -4,7 +4,8 @@ from typing import TypedDict, List
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .db_utils import validate_sql, execute_mysql_query
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 
 class RAGState(TypedDict, total=False):
@@ -13,20 +14,26 @@ class RAGState(TypedDict, total=False):
     generated_sql: str
     sql_result: List[dict]
 
-# Initialize once
-CHROMA_DIR = "./chroma_mysql"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+CHROMA_DIR = "./chroma_mysql"
+# EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="gemini-embedding-2-preview",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    batch_size=50
+)
+
 vectordb = Chroma(
     persist_directory=CHROMA_DIR,
     embedding_function=embeddings,
     collection_name="mysql_schema"
 )
-retriever = vectordb.as_retriever(search_kwargs={"k": 8})
+retriever = vectordb.as_retriever(search_kwargs={"k": 10})
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash", 
     temperature=0,
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )
@@ -36,9 +43,13 @@ You are a MySQL expert. Generate a SINGLE READ-ONLY SELECT query.
 Rules:
 - Only use tables from the context.
 - No INSERT, UPDATE, DELETE, DROP, CREATE.
-- Always include LIMIT 100.
 - Return ONLY the SQL, no markdown.
-
+Mandatory Output Rules:
+- Never return only *_id fields.
+- If a foreign key like party_id, product_id, dispatch_id appears in SELECT,
+  you MUST join the related table and include a readable column
+  such as name, code, title, invoice_num, order_num.
+                                          
 Context:
 {context}
 
@@ -49,7 +60,10 @@ Question:
 
 async def retriever_node(state: RAGState) -> RAGState:
     docs = await retriever.ainvoke(state["question"])
-    state["retrieved_docs"] = [d.page_content for d in docs]
+    state["retrieved_docs"] = [
+    f"Table: {d.metadata.get('table')}\n{d.page_content}"
+        for d in docs
+        ]
     return state
 
 
@@ -64,13 +78,17 @@ async def sql_generator_node(state: RAGState) -> RAGState:
     raw_sql = raw_sql.replace("```", "").strip()
     
     # Extract first SELECT statement
-    match = re.search(r"(SELECT\s+.+?)(?:;|$)", raw_sql, re.IGNORECASE | re.DOTALL)
-    sql = match.group(1).strip() if match else ""
-    
-    # Enforce LIMIT
-    if sql and "LIMIT" not in sql.upper():
-        sql += " LIMIT 100"
-        
+    # match = re.search(r"(SELECT\s+.+?)(?:;|$)", raw_sql, re.IGNORECASE | re.DOTALL)
+    # sql = match.group(1).strip() if match else ""
+    sql = ""
+
+    if raw_sql:
+        sql = raw_sql.rstrip(";")
+
+        # Enforce LIMIT
+        if "LIMIT" not in sql.upper():
+            sql += " LIMIT 100"
+
     state["generated_sql"] = sql
     return state
 

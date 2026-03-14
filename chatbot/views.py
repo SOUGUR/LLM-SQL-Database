@@ -18,4 +18,5 @@ class TextToSQLView(View):
             return JsonResponse(result)
             
         except Exception as e:
+            print("ERROR:", e)
             return JsonResponse({"error": str(e)}, status=400)
