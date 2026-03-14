@@ -7,6 +7,8 @@ from .db_utils import validate_sql, execute_mysql_query
 # from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
+from langchain_classic.memory import ConversationBufferWindowMemory
+
 
 class RAGState(TypedDict, total=False):
     question: str
@@ -25,6 +27,7 @@ embeddings = GoogleGenerativeAIEmbeddings(
     batch_size=50
 )
 
+
 vectordb = Chroma(
     persist_directory=CHROMA_DIR,
     embedding_function=embeddings,
@@ -38,8 +41,18 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )
 
+memory = ConversationBufferWindowMemory(
+    k=3,  # number of past interactions to keep
+    memory_key="chat_history",
+    return_messages=True
+)
+
 sql_prompt = PromptTemplate.from_template("""
 You are a MySQL expert. Generate a SINGLE READ-ONLY SELECT query.
+
+Chat History:
+{chat_history}
+                                          
 Rules:
 - Only use tables from the context.
 - No INSERT, UPDATE, DELETE, DROP, CREATE.
@@ -69,7 +82,19 @@ async def retriever_node(state: RAGState) -> RAGState:
 
 async def sql_generator_node(state: RAGState) -> RAGState:
     context = "\n\n".join(state.get("retrieved_docs", []))
-    prompt_text = sql_prompt.format(context=context, question=state["question"])
+    # prompt_text = sql_prompt.format(context=context, question=state["question"])
+    memory_vars = memory.load_memory_variables({})
+    messages = memory_vars.get("chat_history", [])
+
+    chat_history = "\n".join(
+        f"{m.type.upper()}: {m.content}" for m in messages
+    )
+
+    prompt_text = sql_prompt.format(
+        chat_history=chat_history,
+        context=context,
+        question=state["question"]
+    )
     response = await llm.ainvoke(prompt_text)
     raw_sql = str(getattr(response, "content", "")).strip()
     
@@ -110,7 +135,12 @@ async def process_text_to_sql(question: str):
     
     # Execute on MySQL
     result = execute_mysql_query(sql)
-    
+
+    memory.save_context(
+    {"input": question},
+    {"output": sql}
+    )
+
     return {
         "sql": sql,
         "result": result
