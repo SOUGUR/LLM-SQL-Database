@@ -4,9 +4,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import pymysql
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+import time
 
 
 load_dotenv()
@@ -98,11 +100,17 @@ for table in tables:
 conn.close()
 
 # Embedding model name
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="gemini-embedding-2-preview",
+    batch_size=50
+)
 
 # strategy for chunking - Recursive Charater Text Splitter
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=500,
+    chunk_size=1200,
     chunk_overlap=100,
     separators=["\n\n", "\n", ".", " ", ""]
 )
@@ -124,12 +132,36 @@ split_docs = text_splitter.split_documents(documents)
 # )
 
 # Store in Chroma using documents (NOT texts)
-vectorstore = Chroma.from_documents(
-    documents=split_docs,
-    embedding=embeddings,
-    persist_directory="./chroma_mysql",
-    collection_name="mysql_schema"
-)
+# vectorstore = Chroma.from_documents(
+#     documents=split_docs,
+#     embedding=embeddings,
+#     persist_directory="./chroma_mysql",
+#     collection_name="mysql_schema"
+# )
+
+batch_size = 5  # Small batches to stay safe under the 100 RPM limit
+vectorstore = None
+
+print(f"Indexing {len(split_docs)} chunks into Chroma...")
+
+for i in range(0, len(split_docs), batch_size):
+    batch = split_docs[i : i + batch_size]
+    
+    if vectorstore is None:
+        vectorstore = Chroma.from_documents(
+            documents=batch,
+            embedding=embeddings,
+            persist_directory="./chroma_mysql",
+            collection_name="mysql_schema"
+        )
+    else:
+        vectorstore.add_documents(batch)
+    
+    print(f"Indexed chunks {i} to {i + len(batch)}")
+    # Pause for 2 seconds between batches to avoid 429 errors
+    time.sleep(2) 
+
+print("Indexing complete!")
 
 vectorstore.persist()
 print("MySQL schema + sample rows indexed into Chroma at ./chroma_mysql")
