@@ -6,7 +6,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from .db_utils import validate_sql, execute_mysql_query
 # from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
+# from langchain_chroma import Chroma
+from langchain_community.vectorstores import Redis
 from langchain_classic.memory import ConversationBufferWindowMemory
 
 
@@ -28,10 +29,16 @@ embeddings = GoogleGenerativeAIEmbeddings(
 )
 
 
-vectordb = Chroma(
-    persist_directory=CHROMA_DIR,
-    embedding_function=embeddings,
-    collection_name="mysql_schema"
+# vectordb = Chroma(
+#     persist_directory=CHROMA_DIR,
+#     embedding_function=embeddings,
+#     collection_name="mysql_schema"
+# )
+
+vectordb = Redis(
+    redis_url="redis://localhost:6379",
+    index_name="mysql_schema",
+    embedding=embeddings
 )
 retriever = vectordb.as_retriever(search_kwargs={"k": 10})
 
@@ -71,8 +78,8 @@ Question:
 """)
 
 
-async def retriever_node(state: RAGState) -> RAGState:
-    docs = await retriever.ainvoke(state["question"])
+def retriever_node(state: RAGState) -> RAGState:
+    docs = retriever.invoke(state["question"])
     state["retrieved_docs"] = [
     f"Table: {d.metadata.get('table')}\n{d.page_content}"
         for d in docs
@@ -80,7 +87,7 @@ async def retriever_node(state: RAGState) -> RAGState:
     return state
 
 
-async def sql_generator_node(state: RAGState) -> RAGState:
+def sql_generator_node(state: RAGState) -> RAGState:
     context = "\n\n".join(state.get("retrieved_docs", []))
     # prompt_text = sql_prompt.format(context=context, question=state["question"])
     memory_vars = memory.load_memory_variables({})
@@ -95,7 +102,7 @@ async def sql_generator_node(state: RAGState) -> RAGState:
         context=context,
         question=state["question"]
     )
-    response = await llm.ainvoke(prompt_text)
+    response = llm.invoke(prompt_text)
     raw_sql = str(getattr(response, "content", "")).strip()
     
     # Clean
@@ -118,11 +125,11 @@ async def sql_generator_node(state: RAGState) -> RAGState:
     return state
 
 
-async def process_text_to_sql(question: str):
+def process_text_to_sql(question: str):
     state: RAGState = {"question": question}
     
-    state = await retriever_node(state)
-    state = await sql_generator_node(state)
+    state =  retriever_node(state)
+    state =  sql_generator_node(state)
     
     sql = state["generated_sql"]
     if not sql:

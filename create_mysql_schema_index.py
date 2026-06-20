@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import pymysql
-from langchain_community.vectorstores import Chroma
+# from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import Redis
 # from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -189,12 +190,12 @@ for i in range(0, len(split_docs), batch_size):
     batch = split_docs[i : i + batch_size]
     
     if vectorstore is None:
-        vectorstore = Chroma.from_documents(
-            documents=batch,
-            embedding=embeddings,
-            persist_directory="./chroma_mysql",
-            collection_name="mysql_schema"
-        )
+        vectorstore = Redis.from_documents(
+                documents=batch,
+                embedding=embeddings,
+                redis_url="redis://localhost:6379",
+                index_name="mysql_schema"
+            )
     else:
         vectorstore.add_documents(batch)
     
@@ -204,5 +205,5 @@ for i in range(0, len(split_docs), batch_size):
 
 print("Indexing complete!")
 
-vectorstore.persist()
+# vectorstore.persist()
 print("MySQL schema + sample rows indexed into Chroma at ./chroma_mysql")
