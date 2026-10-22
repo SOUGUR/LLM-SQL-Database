@@ -1,47 +1,35 @@
-import os
-import sqlglot
-import pymysql
-from dotenv import load_dotenv
+"""Backwards-compatible helpers; prefer ``SQLValidator`` and ``MySQLExecutor``."""
 
-load_dotenv()
+from .catalog import CatalogStore, allowed_tables
+from .config import get_config
+from .exceptions import UnsafeSQLError
+from .executor import MySQLExecutor
+from .sql_validator import SQLValidator, ValidatedSQL
+
+
+def _validator() -> SQLValidator:
+    config = get_config()
+    store = CatalogStore(config.SCHEMA_CATALOG_PATH)
+    return SQLValidator(
+        allowed_tables=lambda: allowed_tables(store.get(), config),
+        database_name=config.DB_NAME,
+        dialect=config.SQL_DIALECT,
+        max_rows=config.MAX_ROWS,
+        default_limit=config.DEFAULT_LIMIT,
+    )
+
 
 def validate_sql(sql: str):
+    """Return ``(is_safe, reason)`` like the original helper."""
     try:
-        parsed = sqlglot.parse(sql, dialect="mysql")[0]
-        if not parsed:
-            return False, "Empty or invalid SQL"
-        
-        # Check for dangerous operations
-        unsafe_ops = ["Insert", "Update", "Delete", "Drop", "Create", "Alter", "Truncate"]
-        for node in parsed.walk():
-            class_name = node.__class__.__name__
-            if class_name in unsafe_ops:
-                return False, f"Prohibited operation: {class_name}"
-        
-    
-        if parsed.__class__.__name__ != "Select":
-            return False, "Only SELECT queries allowed"
-            
+        _validator().validate(sql)
         return True, ""
-    except Exception as e:
-        return False, f"Parsing error: {str(e)}"
+    except UnsafeSQLError as e:
+        return False, e.public_message
 
 
 def execute_mysql_query(sql: str):
-    conn = pymysql.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        port=int(os.getenv("DB_PORT", 3306)),
-        charset='utf8mb4',
-        read_timeout=10,
-        cursorclass=pymysql.cursors.DictCursor
-    )
-    try:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            rows = cur.fetchall()
-        return list(rows)
-    finally:
-        conn.close()
+    """Validate, then execute ``sql``; returns a list of row dicts."""
+    validated: ValidatedSQL = _validator().validate(sql)
+    result = MySQLExecutor(get_config()).execute(validated)
+    return [dict(zip(result.columns, row)) for row in result.rows]

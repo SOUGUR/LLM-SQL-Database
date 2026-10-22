@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in · Dairy Logistics AI{% endblock %}
+{% block body_class %}auth{% endblock %}
+
+{% block body %}
+<main id="main" class="auth-card">
+    <div class="brand brand-center">
+        <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+        </span>
+        <h1 class="brand-title">Dairy Logistics AI</h1>
+    </div>
+    <p class="auth-sub">Sign in to query your data</p>
+
+    {% if form.errors %}
+    <p class="notice notice-error" role="alert">Your username and password didn't match. Please try again.</p>
+    {% endif %}
+
+    <form method="post" class="auth-form" novalidate>
+        {% csrf_token %}
+        <label for="id_username">Username</label>
+        <input type="text" name="username" id="id_username" autocomplete="username" autofocus required
+               value="{{ form.username.value|default_if_none:'' }}">
+        <label for="id_password">Password</label>
+        <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+</main>
+{% endblock %}

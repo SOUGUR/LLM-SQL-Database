@@ -1,0 +1,10 @@
+# Optional backends. Install with: pip install -r requirements-optional.txt
+# (Docker: --build-arg INSTALL_OPTIONAL=true)
+
+# VECTOR_STORE=chroma
+langchain-chroma==1.0.0
+chromadb==1.3.0
+
+# EMBEDDING_PROVIDER=huggingface (pulls in PyTorch; large)
+langchain-huggingface==1.2.0
+sentence-transformers==5.1.2

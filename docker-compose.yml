@@ -1,0 +1,96 @@
+# Local development stack.
+#
+#   docker compose up --build                       # app + Redis Stack, your existing MySQL
+#   docker compose --profile local-db up --build    # also start a bundled MySQL
+#
+# Secrets are read from .env (see .env.example); nothing is hardcoded here.
+
+name: sql-ai
+
+x-app-env: &app-env
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+  APP_VAR_DIR: /app/var
+  DJANGO_SQLITE_PATH: /app/var/db.sqlite3
+  SCHEMA_CATALOG_PATH: /app/var/schema_catalog.json
+  CHROMA_DIR: /app/var/chroma
+  REDIS_URL: redis://redis:6379
+  DJANGO_CACHE_URL: redis://redis:6379/1
+  # Inside the container "localhost" is the container itself. Default to the
+  # host machine's MySQL; use "mysql" with the local-db profile.
+  DB_HOST: ${COMPOSE_DB_HOST:-host.docker.internal}
+  DB_PORT: ${COMPOSE_DB_PORT:-3306}
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      args:
+        INSTALL_OPTIONAL: ${INSTALL_OPTIONAL:-false}
+    env_file:
+      - path: .env
+        required: false
+    environment: *app-env
+    ports:
+      - "${WEB_HOST_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+      - app_var:/app/var
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack-server:7.2.0-v13
+    environment:
+      # Persist the vector index and cache across restarts.
+      REDIS_ARGS: "--appendonly yes --save 60 1"
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  mysql:
+    profiles: ["local-db"]
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
+      MYSQL_DATABASE: ${DB_NAME:-}
+      MYSQL_READONLY_USER: ${DB_USER:-}
+      MYSQL_READONLY_PASSWORD: ${DB_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  app_var:
+  redis_data:
+  mysql_data:

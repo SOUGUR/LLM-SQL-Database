@@ -1,1 +1,24 @@
+# Secrets
 .env
+.env.*
+!.env.example
+
+# Local runtime state (Django DB, schema catalog, vector index files)
+db.sqlite3
+var/
+chroma_mysql/
+staticfiles/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

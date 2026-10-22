@@ -1,0 +1,19 @@
+# Never bake secrets or local state into images.
+.env
+.env.*
+!.env.example
+db.sqlite3
+var/
+chroma_mysql/
+staticfiles/
+
+.git/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+LLMve/
+.idea/
+.vscode/
+*.log
+graphify-out/
