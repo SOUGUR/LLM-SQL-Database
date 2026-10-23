@@ -143,6 +143,35 @@ class SchemaCatalog:
                 result.append(item)
         return result
 
+    def join_path(self, start: str, end: str, allowed: set[str], max_hops: int = 4) -> list[str]:
+        """Shortest foreign-key path between two tables (inclusive), or ``[]``.
+
+        Only passes through ``allowed`` (lower-cased) tables, so e.g. ``auth_user``
+        audit columns never become a bridge.
+        """
+        a, b = self.get(start), self.get(end)
+        if a is None or b is None:
+            return []
+        if a.name == b.name:
+            return [a.name]
+        previous = {a.name: None}
+        frontier = [a.name]
+        for _ in range(max_hops):
+            next_frontier = []
+            for name in frontier:
+                for neighbor in self.neighbors(name):
+                    if neighbor in previous or neighbor.lower() not in allowed:
+                        continue
+                    previous[neighbor] = name
+                    if neighbor == b.name:
+                        path = [neighbor]
+                        while previous[path[-1]] is not None:
+                            path.append(previous[path[-1]])
+                        return path[::-1]
+                    next_frontier.append(neighbor)
+            frontier = next_frontier
+        return []
+
 
 def is_table_denied(name: str, config: TextToSQLConfig) -> bool:
     lowered = name.lower()

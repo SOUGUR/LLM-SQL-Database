@@ -70,6 +70,53 @@ class RetrievalTests(SimpleTestCase):
         with self.assertRaises(SchemaNotIndexedError):
             retriever.retrieve("orders")
 
+    def chain_catalog(self):
+        """invoice -> dispatch -> order -> party, plus auth_user audit FKs."""
+        from chatbot.services.catalog import ForeignKey
+
+        def table(name, fks=(), cols=("id", "name")):
+            return TableInfo(name=name, columns=[Column(c, "int") for c in cols],
+                             foreign_keys=[ForeignKey(c, t, "id") for c, t in fks])
+
+        return SchemaCatalog(database="shop", generated_at="x", tables={
+            "marketing_invoice": table("marketing_invoice", [("dispatch_id", "marketing_orderdispatches"), ("created_by_id", "auth_user")]),
+            "marketing_orderdispatches": table("marketing_orderdispatches", [("order_id", "marketing_orders"), ("created_by_id", "auth_user")]),
+            "marketing_orders": table("marketing_orders", [("party_id", "party_partymaster")]),
+            "party_partymaster": table("party_partymaster", [("created_by_id", "auth_user")]),
+            "auth_user": table("auth_user"),
+        })
+
+    def test_join_path_finds_multi_hop_bridges_and_skips_denied_tables(self):
+        catalog = self.chain_catalog()
+        allowed = {"marketing_invoice", "marketing_orderdispatches", "marketing_orders", "party_partymaster"}
+        self.assertEqual(
+            catalog.join_path("marketing_invoice", "party_partymaster", allowed),
+            ["marketing_invoice", "marketing_orderdispatches", "marketing_orders", "party_partymaster"],
+        )
+        # The shorter route through auth_user audit columns must not be used.
+        self.assertEqual(catalog.join_path("marketing_invoice", "party_partymaster", allowed | {"auth_user"})[1], "auth_user")
+        self.assertEqual(catalog.join_path("marketing_invoice", "party_partymaster", allowed, max_hops=2), [])
+
+    def test_bridge_tables_are_added_to_context(self):
+        retriever = SchemaRetriever(
+            FakeVectorIndex(["party_partymaster", "marketing_invoice"]),
+            StaticCatalogStore(self.chain_catalog()), make_config(), cache=LocMemCache("t", {}),
+        )
+        result = retriever.retrieve("recent invoices with party names")
+        for bridge in ("marketing_orderdispatches", "marketing_orders"):
+            self.assertIn(bridge, result.tables)
+            self.assertIn(f"TABLE_NAME: {bridge}", result.context)
+        self.assertNotIn("auth_user", result.tables)
+
+    def test_schemas_win_over_sample_rows_when_budget_is_tight(self):
+        catalog = make_catalog()
+        catalog.tables["orders"].sample_rows = [{"note": "x" * 300}] * 3
+        retriever = SchemaRetriever(FakeVectorIndex(["orders", "customers"]), StaticCatalogStore(catalog),
+                                    make_config(MAX_CONTEXT_CHARS=600), cache=LocMemCache("t", {}))
+        result = retriever.retrieve("orders")
+        self.assertIn("TABLE_NAME: customers", result.context)
+        self.assertNotIn("x" * 300, result.context)
+
     def test_lexical_rank_respects_allowed(self):
         catalog = make_catalog()
         self.assertEqual(lexical_rank("auth user password", catalog, {"orders"}), [])

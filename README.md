@@ -11,8 +11,9 @@ and row cap, and shows the results in a chat UI.
 
 - **Natural language → SQL** with Google Gemini (`gemini-2.5-flash` by default).
 - **Schema-aware RAG**: per-table documents in Redis Stack (default) or Chroma,
-  hybrid vector + keyword ranking, foreign-key expansion for joins, a context
-  budget, and cached retrieval.
+  hybrid vector + keyword ranking, foreign-key expansion and multi-hop join-path
+  bridging (e.g. invoice → dispatch → order → party), a context budget that keeps
+  schemas ahead of sample rows, and cached retrieval.
 - **Defence in depth**: parser-based validation, read-only DB user, read-only
   transactions, statement timeouts, row limits, table allowlists.
 - **Chat UI**: streamed progress, sortable result tables, SQL preview, timings,
@@ -31,7 +32,7 @@ chatbot/views.py ── auth · permission · rate limit · body limits · audit
    ▼
 services/pipeline.py  TextToSQLService  (components injected via services/container.py)
    │
-   ├─ retrieval.py      SchemaRetriever   vector search + keyword boost + FK neighbours,
+   ├─ retrieval.py      SchemaRetriever   vector search + keyword boost + FK bridges/neighbours,
    │                                      context rebuilt from the schema catalog, cached
    ├─ sql_generation.py SQLGenerator      prompt with untrusted input fenced, CANNOT_ANSWER path
    ├─ sql_validator.py  SQLValidator      sqlglot AST checks → canonical SQL + enforced LIMIT
@@ -110,6 +111,11 @@ The bundled Docker MySQL creates such a user automatically
 
 Requirements: Python 3.12, a MySQL 8 database, Redis Stack (for `VECTOR_STORE=redis`),
 and a Google AI API key.
+
+> **Redis must be Redis Stack** (it needs the RediSearch module). Plain Redis,
+> including the native Windows build, fails with *"Redis cannot be used as a
+> vector database without RediSearch"*. The easiest option is the compose
+> service: `docker compose up -d redis`, then set `REDIS_URL=redis://localhost:6380`.
 
 ```bash
 python -m venv venv
@@ -240,6 +246,13 @@ MySQL 8.4 demo database with sample dairy data, queried through the read-only us
 | ![Progress](docs/images/03-streaming-progress.jpg) Streamed progress stages | ![Result](docs/images/04-result-table.jpg) Result: joins found via FK expansion |
 | ![SQL preview](docs/images/05-sql-preview.jpg) Validated SQL preview | ![Second query](docs/images/06-second-query.jpg) Warm query (~3 s total) |
 | ![Injection blocked](docs/images/07-injection-blocked.jpg) XSS shown as text; injection and `auth_user` requests refused | ![Audit log](docs/images/08-audit-log.jpg) Every question is audited |
+
+Phone width (390 px): the header collapses, and wide result tables scroll
+inside their own container instead of the page:
+
+| | |
+| --- | --- |
+| ![Mobile result](docs/images/11-mobile-result.png) | ![Mobile table scroll](docs/images/12-mobile-table-scroll.png) |
 
 Test suite (95 tests, including the 6 MySQL integration tests) and the
 production image smoke test:

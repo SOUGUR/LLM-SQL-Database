@@ -98,10 +98,12 @@ class SchemaRetriever:
             if ranked and source == "vector":
                 self._cache_set(key, ranked)
 
-        tables = self._select(ranked, catalog, allowed)
+        tables, primary_count = self._select(ranked, catalog, allowed)
         if not tables:
             raise UnanswerableQuestionError("no relevant tables")
-        return RetrievalResult(tables=tables, context=self._render(tables, catalog), source=source)
+        return RetrievalResult(
+            tables=tables, context=self._render(tables, catalog, primary_count), source=source
+        )
 
     # -- ranking -------------------------------------------------------------
 
@@ -128,11 +130,23 @@ class SchemaRetriever:
                 ranked.append(name)
         return ranked, source
 
-    def _select(self, ranked: list[str], catalog: SchemaCatalog, allowed: set[str]) -> list[str]:
+    def _select(self, ranked: list[str], catalog: SchemaCatalog, allowed: set[str]) -> tuple[list[str], int]:
         limit = self.config.MAX_CONTEXT_TABLES
         primary = [t for t in ranked if t.lower() in allowed][:limit]
         selected = list(primary)
         extra_budget = max(2, limit // 2)
+
+        # Bridge tables: intermediate hops that join the top tables together
+        # (e.g. invoice -> dispatch -> order -> party). Without them the LLM
+        # sees both ends of a join but has no way to connect them.
+        top = primary[:5]
+        for i, start in enumerate(top):
+            for end in top[i + 1:]:
+                for bridge in catalog.join_path(start, end, allowed)[1:-1]:
+                    if extra_budget > 0 and bridge not in selected:
+                        selected.append(bridge)
+                        extra_budget -= 1
+
         for table in primary[:3]:
             for neighbor in catalog.neighbors(table):
                 if extra_budget <= 0:
@@ -140,23 +154,29 @@ class SchemaRetriever:
                 if neighbor not in selected and neighbor.lower() in allowed:
                     selected.append(neighbor)
                     extra_budget -= 1
-        return selected
+        return selected, len(primary)
 
-    def _render(self, tables: list[str], catalog: SchemaCatalog) -> str:
+    def _render(self, tables: list[str], catalog: SchemaCatalog, primary_count: int) -> str:
+        """Two passes: every table's schema first, then sample rows for the
+        primary tables while budget remains. Join structure matters more than
+        example values, so bridge tables are never crowded out by samples."""
         budget = self.config.MAX_CONTEXT_CHARS
-        primary_count = min(len(tables), self.config.MAX_CONTEXT_TABLES)
-        parts, used = [], 0
-        for i, name in enumerate(tables):
-            table = catalog.get(name)
-            # Sample rows help the LLM with value formats; skip them for FK neighbours.
-            text = table.render(sample_rows=None if i < primary_count else 0)
-            if used + len(text) > budget:
-                text = table.render(sample_rows=0)
-                if used + len(text) > budget:
-                    break
-            parts.append(text)
-            used += len(text) + 2
-        return "\n\n".join(parts)
+        texts: dict[str, str] = {}
+        used = 0
+        for name in tables:
+            text = catalog.get(name).render(sample_rows=0)
+            if used + len(text) + 2 <= budget:
+                texts[name] = text
+                used += len(text) + 2
+        for name in tables[:primary_count]:
+            if name not in texts:
+                continue
+            full = catalog.get(name).render()
+            extra = len(full) - len(texts[name])
+            if extra > 0 and used + extra <= budget:
+                texts[name] = full
+                used += extra
+        return "\n\n".join(texts[name] for name in tables if name in texts)
 
     # -- caching -------------------------------------------------------------
 
